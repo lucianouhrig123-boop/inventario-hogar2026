@@ -135,11 +135,6 @@ CUSTOM_CSS = f"""
         border-right: 2px solid #a5d6a7;
         padding: 20px 10px;
     }}
-    
-    /* Ocultar el label de la barra lateral */
-    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] {{
-        display: none;
-    }}
 
     /* Menú lateral */
     div[role="radiogroup"] > label {{
@@ -307,12 +302,12 @@ def eliminar_producto(prod_id, nombre_producto):
     registrar_log(f"Producto eliminado: '{nombre_producto}'.")
 
 # ==========================================
-# 3. ANÁLISIS DE ALIMENTOS CON IA Y VISIÓN (GEMINI OPTIMIZADO)
+# 3. ANÁLISIS DE ALIMENTOS CON IA (ULTRA RÁPIDO)
 # ==========================================
 
 UNIDADES_VALIDAS = ["Unidades", "Kg", "Gramos", "Litros", "Packs", "Cajas"]
 
-def preparar_imagen_para_ia(image_bytes, max_dimension=400, jpeg_quality=50):
+def preparar_imagen_para_ia(image_bytes, max_dimension=300, jpeg_quality=40):
     if not image_bytes:
         raise ValueError("No se recibió ninguna imagen.")
 
@@ -346,18 +341,24 @@ def obtener_resultado_vision(image_bytes):
             api_key = ""
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('models/gemini-3.6-flash')
+
+    # Ajustes de velocidad extrema
+    generation_config = genai.types.GenerationConfig(
+        max_output_tokens=150,
+        temperature=0.1
+    )
+
+    model = genai.GenerativeModel(
+        model_name='gemini-1.5-flash',
+        generation_config=generation_config
+    )
 
     imagen_preparada = preparar_imagen_para_ia(image_bytes)
 
-    # Prompt ultracorto para respuesta inmediata
-    instrucciones = """Identifica alimentos.
-Devuelve SOLO JSON estricto sin markdown:
-{"alimentos": [{"nombre": "limón", "cantidad": 1, "unidad": "Unidades", "confianza": 95, "observacion": ""}]}
-Unidades válidas: Unidades, Kg, Gramos, Litros, Packs, Cajas."""
+    prompt_ultracorto = 'Responde SOLO un JSON estricto sin markdown: {"alimentos":[{"nombre":"tomate","cantidad":1,"unidad":"Unidades","confianza":95,"observacion":""}]}'
 
     response = model.generate_content([
-        instrucciones,
+        prompt_ultracorto,
         {"mime_type": "image/jpeg", "data": imagen_preparada}
     ])
 
@@ -530,7 +531,7 @@ init_db()
 
 st.sidebar.markdown("### Inventario Hogar")
 opcion_menu = st.sidebar.radio(
-    "",
+    "Navegación",
     [
         "Panel Central",
         "Inventario Principal",
@@ -538,7 +539,8 @@ opcion_menu = st.sidebar.radio(
         "Analizar Alimentos con IA",
         "Editar Alimento",
         "Lista de Compras & PDF"
-    ]
+    ],
+    label_visibility="collapsed"
 )
 
 # ------------------------------------------
