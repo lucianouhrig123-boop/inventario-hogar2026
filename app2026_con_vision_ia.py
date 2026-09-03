@@ -307,7 +307,7 @@ def eliminar_producto(prod_id, nombre_producto):
 
 UNIDADES_VALIDAS = ["Unidades", "Kg", "Gramos", "Litros", "Packs", "Cajas"]
 
-def preparar_imagen_para_ia(image_bytes, max_dimension=300, jpeg_quality=40):
+def preparar_imagen_para_ia(image_bytes, max_dimension=600, jpeg_quality=80):
     if not image_bytes:
         raise ValueError("No se recibió ninguna imagen.")
 
@@ -342,13 +342,13 @@ def obtener_resultado_vision(image_bytes):
 
     genai.configure(api_key=api_key)
 
-    # Configuración del modelo actualizado
+    # Forzar respuesta JSON estricta desde la configuración
     generation_config = genai.types.GenerationConfig(
-        max_output_tokens=150,
-        temperature=0.1
+        max_output_tokens=300,
+        temperature=0.1,
+        response_mime_type="application/json"
     )
 
-    # Actualizado al modelo recomendado gemini-3.6-flash
     model = genai.GenerativeModel(
         model_name='gemini-3.6-flash',
         generation_config=generation_config
@@ -356,17 +356,27 @@ def obtener_resultado_vision(image_bytes):
 
     imagen_preparada = preparar_imagen_para_ia(image_bytes)
 
-    prompt_ultracorto = 'Responde SOLO un JSON estricto sin markdown: {"alimentos":[{"nombre":"tomate","cantidad":1,"unidad":"Unidades","confianza":95,"observacion":""}]}'
+    prompt = (
+        'Identifica todos los alimentos en la imagen. Responde estrictamente con la estructura JSON: '
+        '{"alimentos": [{"nombre": "limon", "cantidad": 1, "unidad": "Unidades", "confianza": 95, "observacion": "amarillo fresco"}]}'
+    )
 
     response = model.generate_content([
-        prompt_ultracorto,
+        prompt,
         {"mime_type": "image/jpeg", "data": imagen_preparada}
     ])
 
     contenido = getattr(response, "text", "").strip()
 
+    if not contenido:
+        raise ValueError("La respuesta de la IA llegó vacía. Intenta tomar la foto más cerca.")
+
+    # Limpieza de marcado markdown si existe
     if contenido.startswith("```"):
-        contenido = contenido.replace("```json", "", 1).replace("```", "", 1).strip()
+        contenido = contenido.split("```")[1]
+        if contenido.startswith("json"):
+            contenido = contenido[4:]
+        contenido = contenido.strip()
 
     resultado = json.loads(contenido)
     alimentos_limpios = []
