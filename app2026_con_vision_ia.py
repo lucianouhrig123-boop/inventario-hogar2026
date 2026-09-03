@@ -302,7 +302,7 @@ def eliminar_producto(prod_id, nombre_producto):
     registrar_log(f"Producto eliminado: '{nombre_producto}'.")
 
 # ==========================================
-# 3. ANÁLISIS DE ALIMENTOS CON IA (OPTIMIZADO)
+# 3. ANÁLISIS DE ALIMENTOS CON IA
 # ==========================================
 
 UNIDADES_VALIDAS = ["Unidades", "Kg", "Gramos", "Litros", "Packs", "Cajas"]
@@ -342,14 +342,15 @@ def obtener_resultado_vision(image_bytes):
 
     genai.configure(api_key=api_key)
 
-    # Configuración de modelo estable y rápida
+    # Configuración del modelo actualizado
     generation_config = genai.types.GenerationConfig(
         max_output_tokens=150,
         temperature=0.1
     )
 
+    # Actualizado al modelo recomendado gemini-3.6-flash
     model = genai.GenerativeModel(
-        model_name='gemini-2.0-flash',
+        model_name='gemini-3.6-flash',
         generation_config=generation_config
     )
 
