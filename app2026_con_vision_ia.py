@@ -4,11 +4,11 @@ import io
 import random
 import os
 import json
-import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+from PIL import Image
 
 # Librería oficial de Google Gemini
 try:
@@ -307,28 +307,6 @@ def eliminar_producto(prod_id, nombre_producto):
 
 UNIDADES_VALIDAS = ["Unidades", "Kg", "Gramos", "Litros", "Packs", "Cajas"]
 
-def preparar_imagen_para_ia(image_bytes, max_dimension=600, jpeg_quality=80):
-    if not image_bytes:
-        raise ValueError("No se recibió ninguna imagen.")
-
-    array = bytearray(image_bytes)
-    image_np = cv2.imdecode(np.frombuffer(array, dtype=np.uint8), cv2.IMREAD_COLOR)
-
-    if image_np is None:
-        raise ValueError("La imagen no pudo ser interpretada.")
-
-    height, width = image_np.shape[:2]
-    scale = min(1.0, max_dimension / max(height, width))
-    
-    if scale < 1.0:
-        new_width = max(1, int(width * scale))
-        new_height = max(1, int(height * scale))
-        image_np = cv2.resize(image_np, (new_width, new_height), interpolation=cv2.INTER_AREA)
-
-    ok, encoded = cv2.imencode(".jpg", image_np, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality])
-    return encoded.tobytes()
-
-
 def obtener_resultado_vision(image_bytes):
     if genai is None:
         raise RuntimeError("Falta la librería google-generativeai.")
@@ -342,41 +320,31 @@ def obtener_resultado_vision(image_bytes):
 
     genai.configure(api_key=api_key)
 
-    # Forzar respuesta JSON estricta desde la configuración
+    # Configuración del modelo con suficiente límite de tokens para respuestas completas
     generation_config = genai.types.GenerationConfig(
-        max_output_tokens=300,
+        max_output_tokens=1000,
         temperature=0.1,
         response_mime_type="application/json"
     )
 
     model = genai.GenerativeModel(
-        model_name='gemini-3.6-flash',
+        model_name='gemini-2.5-flash',
         generation_config=generation_config
     )
 
-    imagen_preparada = preparar_imagen_para_ia(image_bytes)
+    # Carga limpia usando PIL
+    imagen = Image.open(io.BytesIO(image_bytes))
 
     prompt = (
-        'Identifica todos los alimentos en la imagen. Responde estrictamente con la estructura JSON: '
-        '{"alimentos": [{"nombre": "limon", "cantidad": 1, "unidad": "Unidades", "confianza": 95, "observacion": "amarillo fresco"}]}'
+        'Identifica todos los alimentos en la imagen. Responde UNICAMENTE en este formato JSON exacto: '
+        '{"alimentos": [{"nombre": "tomate", "cantidad": 1, "unidad": "Unidades", "confianza": 90, "observacion": "fresco"}]}'
     )
 
-    response = model.generate_content([
-        prompt,
-        {"mime_type": "image/jpeg", "data": imagen_preparada}
-    ])
-
+    response = model.generate_content([prompt, imagen])
     contenido = getattr(response, "text", "").strip()
 
     if not contenido:
-        raise ValueError("La respuesta de la IA llegó vacía. Intenta tomar la foto más cerca.")
-
-    # Limpieza de marcado markdown si existe
-    if contenido.startswith("```"):
-        contenido = contenido.split("```")[1]
-        if contenido.startswith("json"):
-            contenido = contenido[4:]
-        contenido = contenido.strip()
+        raise ValueError("La respuesta de la IA llegó vacía.")
 
     resultado = json.loads(contenido)
     alimentos_limpios = []
