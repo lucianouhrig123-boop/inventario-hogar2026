@@ -320,23 +320,22 @@ def obtener_resultado_vision(image_bytes):
 
     genai.configure(api_key=api_key)
 
-    # Configuración del modelo con suficiente límite de tokens para respuestas completas
     generation_config = genai.types.GenerationConfig(
         max_output_tokens=1000,
         temperature=0.1,
         response_mime_type="application/json"
     )
 
+    # Se utiliza gemini-1.5-flash para garantizar compatibilidad completa
     model = genai.GenerativeModel(
-        model_name='gemini-2.5-flash',
+        model_name='gemini-1.5-flash',
         generation_config=generation_config
     )
 
-    # Carga limpia usando PIL
     imagen = Image.open(io.BytesIO(image_bytes))
 
     prompt = (
-        'Identifica todos los alimentos en la imagen. Responde UNICAMENTE en este formato JSON exacto: '
+        'Identifica los alimentos de la imagen. Responde UNICAMENTE en este formato JSON exacto: '
         '{"alimentos": [{"nombre": "tomate", "cantidad": 1, "unidad": "Unidades", "confianza": 90, "observacion": "fresco"}]}'
     )
 
