@@ -1,7 +1,6 @@
 streamlit
 pandas
+pillow
 plotly
-opencv-python-headless
-numpy
-google-generativeai
 reportlab
+google-genai
