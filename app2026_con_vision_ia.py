@@ -4,7 +4,6 @@ import io
 import random
 import os
 import json
-import base64
 import cv2
 import numpy as np
 import pandas as pd
@@ -308,50 +307,12 @@ def eliminar_producto(prod_id, nombre_producto):
     registrar_log(f"Producto eliminado: '{nombre_producto}'.")
 
 # ==========================================
-# 3. ANÁLISIS DE ALIMENTOS CON IA Y VISIÓN (GEMINI)
+# 3. ANÁLISIS DE ALIMENTOS CON IA Y VISIÓN (GEMINI OPTIMIZADO)
 # ==========================================
 
 UNIDADES_VALIDAS = ["Unidades", "Kg", "Gramos", "Litros", "Packs", "Cajas"]
 
-def preparar_imagen_para_ia(image_bytes, max_dimension=1600, jpeg_quality=88):
-    if not image_bytes:
-        raise ValueError("No se recibió ninguna imagen.")
-
-    array = bytearray(image_bytes)
-    image_np = cv2.imdecode(
-        np.frombuffer(array, dtype=np.uint8),
-        cv2.IMREAD_COLOR
-    )
-
-    if image_np is None:
-        raise ValueError("La imagen no pudo ser interpretada por OpenCV.")
-
-    height, width = image_np.shape[:2]
-    if height <= 0 or width <= 0:
-        raise ValueError("La imagen tiene dimensiones inválidas.")
-
-    scale = min(1.0, max_dimension / max(height, width))
-    if scale < 1.0:
-        new_width = max(1, int(width * scale))
-        new_height = max(1, int(height * scale))
-        image_np = cv2.resize(
-            image_np,
-            (new_width, new_height),
-            interpolation=cv2.INTER_AREA
-        )
-
-    ok, encoded = cv2.imencode(
-        ".jpg",
-        image_np,
-        [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality]
-    )
-
-    if not ok:
-        raise ValueError("No se pudo preparar la imagen para el análisis.")
-
-    return encoded.tobytes()
-
-def preparar_imagen_para_ia(image_bytes, max_dimension=640, jpeg_quality=70):
+def preparar_imagen_para_ia(image_bytes, max_dimension=400, jpeg_quality=50):
     if not image_bytes:
         raise ValueError("No se recibió ninguna imagen.")
 
@@ -389,11 +350,11 @@ def obtener_resultado_vision(image_bytes):
 
     imagen_preparada = preparar_imagen_para_ia(image_bytes)
 
-    # Prompt ultracorto para máxima velocidad
-    instrucciones = """Identifica alimentos en la imagen.
-Devuelve SOLO JSON estricto sin formato markdown:
+    # Prompt ultracorto para respuesta inmediata
+    instrucciones = """Identifica alimentos.
+Devuelve SOLO JSON estricto sin markdown:
 {"alimentos": [{"nombre": "limón", "cantidad": 1, "unidad": "Unidades", "confianza": 95, "observacion": ""}]}
-Unidades: Unidades, Kg, Gramos, Litros, Packs, Cajas."""
+Unidades válidas: Unidades, Kg, Gramos, Litros, Packs, Cajas."""
 
     response = model.generate_content([
         instrucciones,
@@ -409,96 +370,23 @@ Unidades: Unidades, Kg, Gramos, Litros, Packs, Cajas."""
     alimentos_limpios = []
 
     for item in resultado.get("alimentos", []):
-        alimentos_limpios.append({
-            "nombre": str(item.get("nombre", "")).strip(),
-            "cantidad": float(item.get("cantidad", 1)),
-            "unidad": str(item.get("unidad", "Unidades")).strip(),
-            "confianza": int(item.get("confianza", 90)),
-            "observacion": str(item.get("observacion", "")).strip()
-        })
-
-    return alimentos_limpios
-
-    instrucciones = """
-Analiza esta imagen de alimentos para un sistema de inventario doméstico.
-
-Objetivo:
-1. Identificar cada alimento visible.
-2. Separar alimentos diferentes en elementos independientes.
-3. Contar unidades individuales cuando sea visualmente posible.
-4. Si no es posible contar unidades, estimar una cantidad razonable y expresarla en una unidad apropiada.
-5. Dar una confianza de 0 a 100 para la identificación.
-6. No inventar alimentos que no sean visibles.
-
-Unidades permitidas:
-- Unidades
-- Kg
-- Gramos
-- Litros
-- Packs
-- Cajas
-
-Devuelve ÚNICAMENTE JSON válido sin bloques markdown ni texto adicional:
-{
-  "alimentos": [
-    {
-      "nombre": "string",
-      "cantidad": 0,
-      "unidad": "Unidades",
-      "confianza": 0,
-      "observacion": "string"
-    }
-  ]
-}
-"""
-
-    response = model.generate_content([
-        instrucciones,
-        {"mime_type": "image/jpeg", "data": imagen_preparada}
-    ])
-
-    contenido = getattr(response, "text", None)
-    if not contenido:
-        raise RuntimeError("La API no devolvió contenido utilizable.")
-
-    contenido = contenido.strip()
-
-    if contenido.startswith("```"):
-        contenido = contenido.replace("```json", "", 1).replace("```", "", 1).strip()
-
-    try:
-        resultado = json.loads(contenido)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(
-            "La IA devolvió una respuesta que no pudo interpretarse como JSON."
-        ) from exc
-
-    if not isinstance(resultado, dict) or not isinstance(resultado.get("alimentos"), list):
-        raise RuntimeError("La respuesta de la IA no tiene el formato esperado.")
-
-    alimentos_limpios = []
-
-    for item in resultado["alimentos"]:
-        if not isinstance(item, dict):
-            continue
-
         nombre = str(item.get("nombre", "")).strip()
         if not nombre:
             continue
 
         try:
-            cantidad = max(0.0, float(item.get("cantidad", 0)))
+            cantidad = max(0.0, float(item.get("cantidad", 1)))
         except (TypeError, ValueError):
-            cantidad = 0.0
+            cantidad = 1.0
 
         unidad = str(item.get("unidad", "Unidades")).strip()
         if unidad not in UNIDADES_VALIDAS:
             unidad = "Unidades"
 
         try:
-            confianza = max(0, min(100, int(float(item.get("confianza", 0)))))
+            confianza = max(0, min(100, int(float(item.get("confianza", 90)))))
         except (TypeError, ValueError):
-            confianza = 0
+            confianza = 90
 
         observacion = str(item.get("observacion", "")).strip()
 
