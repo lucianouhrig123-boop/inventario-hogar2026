@@ -58,7 +58,7 @@ UNIDADES_VALIDAS = [
 
 # Modelo multimodal actual de Gemini.
 # Se puede cambiar desde Streamlit Secrets con GEMINI_MODEL.
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "").strip()
 
 
 # ============================================================
@@ -464,6 +464,60 @@ def extraer_json_de_respuesta(texto):
     )
 
 
+def obtener_modelo_vision(client):
+    """
+    Busca un modelo que REALMENTE esté disponible para la API key usada
+    por esta aplicación y que anuncie soporte para generateContent.
+
+    Esto evita depender de que un nombre de modelo esté disponible en
+    una cuenta/proyecto/API concreto.
+    """
+    disponibles = []
+
+    try:
+        for modelo in client.models.list():
+            nombre = str(getattr(modelo, "name", "")).strip()
+            acciones = getattr(modelo, "supported_actions", None) or []
+
+            if nombre and "generateContent" in acciones:
+                nombre_limpio = nombre.replace("models/", "", 1)
+                disponibles.append(nombre_limpio)
+    except Exception as exc:
+        raise RuntimeError(
+            "La API key fue recibida, pero no se pudo consultar la lista "
+            f"de modelos disponibles. Detalle: {exc}"
+        ) from exc
+
+    if not disponibles:
+        raise RuntimeError(
+            "La API key no tiene ningún modelo disponible que soporte "
+            "generateContent."
+        )
+
+    # Si el usuario configuró GEMINI_MODEL, se intenta primero.
+    if GEMINI_MODEL:
+        for modelo in disponibles:
+            if modelo == GEMINI_MODEL or modelo.endswith(GEMINI_MODEL):
+                return modelo
+
+    # Preferencias actuales. Si uno no está habilitado, se pasa al siguiente.
+    preferencias = [
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+    ]
+
+    for preferido in preferencias:
+        for modelo in disponibles:
+            if modelo == preferido:
+                return modelo
+
+    # Último recurso: elegir un modelo generateContent disponible.
+    return disponibles[0]
+
+
 def obtener_resultado_vision(image_bytes):
     if genai is None or types is None:
         raise RuntimeError(
@@ -479,12 +533,15 @@ def obtener_resultado_vision(image_bytes):
             "Configúrala como secreto de Streamlit."
         )
 
-    # Nuevo SDK oficial de Google.
     client = genai.Client(api_key=api_key)
+
+    # IMPORTANTE:
+    # Ya no suponemos que el problema sea "gemini-2.5-flash".
+    # Consultamos primero qué modelos acepta realmente esta API key.
+    modelo = obtener_modelo_vision(client)
 
     imagen = Image.open(io.BytesIO(image_bytes))
 
-    # Convertimos a RGB para evitar problemas con imágenes RGBA/P.
     if imagen.mode not in ("RGB", "L"):
         imagen = imagen.convert("RGB")
 
@@ -520,7 +577,7 @@ Reglas:
 
     try:
         response = client.models.generate_content(
-            model=GEMINI_MODEL,
+            model=modelo,
             contents=[prompt, imagen],
             config=types.GenerateContentConfig(
                 temperature=0.1,
@@ -531,26 +588,25 @@ Reglas:
     except Exception as exc:
         mensaje = str(exc)
 
-        # Mensaje más claro para errores típicos del modelo/API.
-        if "404" in mensaje and "model" in mensaje.lower():
-            raise RuntimeError(
-                f"El modelo '{GEMINI_MODEL}' no está disponible para esta "
-                "API. Cambia GEMINI_MODEL por un modelo Gemini multimodal "
-                "disponible."
-            ) from exc
-
+        # NO ocultamos el error real detrás de "el modelo no está disponible".
+        # Así, si vuelve a fallar, Streamlit mostrará el motivo exacto.
         if "429" in mensaje:
             raise RuntimeError(
                 "Gemini rechazó la solicitud por límite de uso o cuota. "
-                "Revisa la cuota de tu API de Gemini."
+                f"Modelo seleccionado: {modelo}. Detalle: {mensaje}"
             ) from exc
 
         if "401" in mensaje or "403" in mensaje:
             raise RuntimeError(
-                "La API Key de Gemini no es válida o no tiene permisos."
+                "La API Key de Gemini no es válida, está restringida "
+                "incorrectamente o no tiene permisos. "
+                f"Modelo seleccionado: {modelo}. Detalle: {mensaje}"
             ) from exc
 
-        raise
+        raise RuntimeError(
+            f"Falló la llamada de visión de Gemini usando "
+            f"'{modelo}'. Error real de la API: {mensaje}"
+        ) from exc
 
     contenido = getattr(response, "text", "")
 
@@ -1251,8 +1307,8 @@ elif opcion_menu == "Analizar Alimentos con IA":
                 key="analizar_alimentos_ia",
             ):
                 with st.spinner(
-                    f"Analizando la imagen con Gemini "
-                    f"({GEMINI_MODEL})..."
+                    f"Consultando Gemini y buscando automáticamente un modelo "
+                    f"compatible con tu API..."
                 ):
                     try:
                         resultados = obtener_resultado_vision(
